@@ -1111,13 +1111,21 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Enviando…';
 
+      let result;
       try {
-        const resp = await fetch(WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(orderData)
-        });
-        const result = await resp.json();
+        result = await sendOrder(orderData);
+        if (result.status === 'price-changed') {
+          const nuevoTotal = fmt(result.total);
+          const acepta = confirm(
+            `Los precios cambiaron desde que cargaste el catálogo.\nNuevo total: ${nuevoTotal}\n\n¿Confirmas el pedido con el precio actualizado?`
+          );
+          submitBtn.disabled = false;
+          submitBtn.textContent = '✅ Confirmar pedido';
+          if (!acepta) return;
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Enviando…';
+          result = await sendOrder(Object.assign({}, orderData, { confirmarNuevoPrecio: true }));
+        }
         if (result.status !== 'ok') {
           throw new Error(result.message || 'El servidor rechazó el pedido.');
         }
@@ -1139,10 +1147,24 @@
         if (p) p.stock = Math.max(0, p.stock - item.cantidad);
       });
 
-      document.getElementById('success-id').textContent = '#' + orderId;
+      // El orderId mostrado es el que confirma el servidor (result.orderId),
+      // no el que propuso el navegador — si hubo un choque de IDs, el
+      // backend genera uno distinto, y este es el que de verdad quedó
+      // guardado en la hoja.
+      const orderIdFinal = result.orderId || orderId;
+      document.getElementById('success-id').textContent = '#' + orderIdFinal;
       document.getElementById('success-payment').textContent = selectedPayment;
-      document.getElementById('whatsapp-btn').href = buildWhatsAppLink(orderId, torre, apto, orderData.total);
+      document.getElementById('whatsapp-btn').href = buildWhatsAppLink(orderIdFinal, torre, apto, orderData.total);
       showView('success');
+    }
+
+    async function sendOrder(payload) {
+      const resp = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      return resp.json();
     }
 
     function resetAll() {
